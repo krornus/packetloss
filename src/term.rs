@@ -1,5 +1,6 @@
 use std::iter::Iterator;
 use std::cmp::min;
+use std::f64::INFINITY;
 
 use tui::layout::Rect;
 use tui::buffer::Buffer;
@@ -10,6 +11,7 @@ use crate::ping::PacketChunk;
 pub struct LogList<'b> {
     block: Option<Block<'b>>,
     items: Vec<PacketChunk>,
+    min_latency: f64,
 }
 
 
@@ -18,6 +20,7 @@ impl<'b> Default for LogList<'b> {
         LogList {
             block: None,
             items: vec![],
+            min_latency: INFINITY,
         }
     }
 }
@@ -25,6 +28,9 @@ impl<'b> Default for LogList<'b> {
 
 impl<'b> LogList<'b> {
     pub fn insert(&mut self, item: PacketChunk) {
+        if item.latency() < self.min_latency {
+            self.min_latency = item.latency();
+        }
         self.items.insert(0, item);
     }
 
@@ -74,8 +80,6 @@ impl Iterator for LogListPartitioner {
      */
     fn next(&mut self) -> Option<Self::Item> {
 
-        dbg!(&self);
-
         if self.height == 0 || self.length == 0 {
             return None;
         }
@@ -85,8 +89,12 @@ impl Iterator for LogListPartitioner {
 
         let after = min(self.length, (self.height - 1) * self.max_width);
 
-        let wdiv = (self.length - after) + 1;
+        let mut wdiv = (self.length - after) + 1;
         let hdiv = min(self.height, self.length);
+
+        if self.height == 1 {
+            wdiv -= 1;
+        }
 
         let width = LogListPartitioner::ceil(self.width, wdiv);
         let height = LogListPartitioner::ceil(self.height, hdiv);
@@ -95,7 +103,7 @@ impl Iterator for LogListPartitioner {
         self.height -= height - 1;
 
         /* if the line's width was consumed consume one more line and reset width */
-        if self.width == 0 && self.height > 0 {
+        if self.width == 0 && self.height > 1 {
             self.width = self.max_width;
             self.height -= 1;
             self.y += 1;
@@ -128,6 +136,7 @@ impl<'b> Widget for LogList<'b> {
 
         let partitions = self.partition(area);
         for (item, area) in self.items.iter_mut().zip(partitions) {
+            item.min = self.min_latency;
             item.draw(area, buf);
         }
 

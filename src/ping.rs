@@ -1,7 +1,6 @@
 use oping::{PingItem, PingError};
 
 use std::time::{Duration, SystemTime};
-use std::fmt;
 
 use tui::buffer::Buffer;
 use tui::widgets::Widget;
@@ -10,13 +9,11 @@ use tui::style::Color;
 
 pub struct Ping {
     addr: String,
-    timeout: f64,
+    timeout: Duration,
 }
 
 impl Ping {
     pub fn new(addr: &str, timeout: Duration) -> Self {
-        let ms = timeout.subsec_millis();
-        let timeout = timeout.as_secs() as f64 + (ms as f64 / 1000_f64);
 
         Ping {
             addr: addr.to_string(),
@@ -25,34 +22,43 @@ impl Ping {
     }
 
     pub fn ping(&self, count: u64) -> Result<PacketChunk, PingError> {
-        let mut chunk = PacketChunk::new();
+        let mut chunk = PacketChunk::new((self.timeout.as_secs() * 1000 + self.timeout.subsec_millis() as u64) as f64);
 
-        for _ in 0..count {
-            let mut ping = oping::Ping::new();
-            ping.set_timeout(self.timeout)?;
-            ping.add_host(self.addr.as_str())?;
-
-            let item = ping.send()?.next().unwrap();
-            chunk.packets.push(item);
-        }
+        chunk.packets = (0..count)
+            .map(|_| self.do_ping().ok())
+            .collect();
 
         Ok(chunk)
+    }
+
+    fn do_ping(&self) -> Result<PingItem, PingError> {
+        let mut ping = oping::Ping::new();
+
+        let ms = self.timeout.subsec_millis();
+        let timeout = self.timeout.as_secs() as f64 + (ms as f64 / 1000_f64);
+
+        ping.set_timeout(timeout)?;
+        ping.add_host(self.addr.as_str())?;
+
+        Ok(ping.send()?.next().unwrap())
     }
 }
 
 #[derive(Clone)]
 pub struct PacketChunk {
-    packets: Vec<PingItem>,
+    packets: Vec<Option<PingItem>>,
     time: SystemTime,
-    loss: f64,
+    timeout: f64,
+    pub min: f64,
 }
 
 impl PacketChunk {
-    pub fn new() -> Self {
+    pub fn new(timeout: f64) -> Self {
         PacketChunk {
             packets: vec![],
             time: SystemTime::now(),
-            loss: rand::random(),
+            timeout: timeout,
+            min: 0.0,
         }
     }
 
@@ -61,11 +67,13 @@ impl PacketChunk {
     }
 
     pub fn received(&self) -> usize {
-        self.packets.iter().filter(|x| x.dropped == 0).collect::<Vec<_>>().len()
+        self.packets.iter()
+            .filter(|x| x.is_some())
+            .filter(|x| x.as_ref().unwrap().dropped == 0)
+            .collect::<Vec<_>>().len()
     }
 
     pub fn loss(&self) -> f64 {
-
         let sent = self.sent();
         if sent == 0 {
             0_f64
@@ -75,28 +83,46 @@ impl PacketChunk {
     }
 
     pub fn latency(&self) -> f64 {
-        self.packets.iter().fold(0f64, |acc, item| acc + item.latency_ms)
+
+        let mut acc = 0.0;
+        for packet in self.packets.iter() {
+            acc += match packet {
+                Some(ref packet) => {
+                    if packet.dropped != 0 {
+                        self.timeout
+                    } else {
+                        packet.latency_ms
+                    }
+                },
+                None => {
+                    self.timeout
+                }
+            };
+        }
+
+        acc
     }
 
     pub fn color(&self) -> (u8, u8, u8) {
 
-        let mix = self.loss;
+        let loss = self.loss();
+        let mut lat = self.min / self.latency();
+
+        if lat > 1.0 {
+            lat = 1.0;
+        }
+
+        /* 100% = green */
+        let mix = (1.0 - loss)*lat;
 
         let red: (f64, f64, f64) = (200.0, 0.0, 30.0);
         let green: (f64, f64, f64) = (0.0, 200.0, 30.0);
 
-        let r = ((green.0)*(1f64-mix) + (red.0)*(mix)) as u8;
-        let g = ((green.1)*(1f64-mix) + (red.1)*(mix)) as u8;
-        let b = ((green.2)*(1f64-mix) + (red.2)*(mix)) as u8;
+        let r = ((green.0)*(mix) + (red.0)*(1.0-mix)) as u8;
+        let g = ((green.1)*(mix) + (red.1)*(1.0-mix)) as u8;
+        let b = ((green.2)*(mix) + (red.2)*(1.0-mix)) as u8;
 
         (r,g,b)
-    }
-}
-
-impl fmt::Display for PacketChunk {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} packets transmitted, {} received, {}% packet loss, time {:.01}ms",
-              self.sent(), self.received(), (self.loss()*100f64) as u32, self.latency())
     }
 }
 
@@ -109,13 +135,21 @@ impl Widget for PacketChunk {
             return;
         }
 
-
         self.background(&area, buf, color);
 
-        let info = self.to_string();
-        if area.width < info.len() as u16 {
+        let pct = (self.loss()*100f64) as u32;
+
+        let long = format!(" {} packets transmitted, {} received, {}% packet loss, time {:.01}ms ",
+              self.sent(), self.received(), pct, self.latency());
+        let short = format!(" {}% [{:.0}ms] ", pct, self.latency());
+
+        let info = if area.width >= long.len() as u16 {
+            long
+        } else if area.width >= short.len() as u16 {
+            short
+        } else {
             return;
-        }
+        };
 
         let x = area.x + (area.width / 2).saturating_sub(info.len() as u16 / 2);
         let y = area.y + (area.height / 2);

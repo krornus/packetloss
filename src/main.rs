@@ -57,7 +57,7 @@ impl From<std::sync::mpsc::RecvError> for Error {
 
 fn main() -> Result<(), Error> {
 
-    let ping = Ping::new("8.8.8.8", Duration::from_secs(1));
+    let ping = Ping::new("8.8.8.8", Duration::from_millis(500));
 
     let stdout = io::stdout().into_raw_mode()?;
     let backend = TermionBackend::new(stdout);
@@ -74,19 +74,20 @@ fn main() -> Result<(), Error> {
 
         if sleep.done() {
 
-            let chunk = ping.ping(5)?;
+            let chunk = ping.ping(100)?;
             list.insert(chunk);
 
             let size = terminal.size()?;
             if size != internal_size {
                 terminal.resize(size)?;
                 internal_size = size;
+                terminal.clear()?;
             }
             terminal.draw(|mut f| {
                 list.render(&mut f, size);
             })?;
 
-            sleep = Sleep::sleep(Duration::from_millis(500));
+            sleep = Sleep::sleep(Duration::from_millis(50));
         }
 
 
