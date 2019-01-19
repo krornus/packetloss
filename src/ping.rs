@@ -115,8 +115,8 @@ impl PacketChunk {
         /* 100% = green */
         let mix = (1.0 - loss)*lat;
 
-        let red: (f64, f64, f64) = (200.0, 0.0, 30.0);
-        let green: (f64, f64, f64) = (0.0, 200.0, 30.0);
+        let red: (f64, f64, f64) = (224.0, 15.0, 71.0);
+        let green: (f64, f64, f64) = (14.0, 204.0, 80.0);
 
         let r = ((green.0)*(mix) + (red.0)*(1.0-mix)) as u8;
         let g = ((green.1)*(mix) + (red.1)*(1.0-mix)) as u8;
