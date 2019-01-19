@@ -67,7 +67,11 @@ pub struct LogListPartitioner {
 
 impl LogListPartitioner {
     fn ceil(a: u16, b: u16) -> u16 {
-        1 + ((a - 1) / b)
+        if a == 0 {
+            0
+        } else {
+            1 + ((a - 1) / b)
+        }
     }
 }
 
@@ -89,34 +93,35 @@ impl Iterator for LogListPartitioner {
 
         let after = min(self.length, (self.height - 1) * self.max_width);
 
-        let mut wdiv = (self.length - after) + 1;
+        let mut wdiv = dbg!((self.length - after) + 1);
         let hdiv = min(self.height, self.length);
 
-        if self.height == 1 {
-            wdiv -= 1;
+        if self.height == 1 && wdiv > 0 {
+            wdiv = dbg!(wdiv - 1);
         }
 
         let width = LogListPartitioner::ceil(self.width, wdiv);
         let height = LogListPartitioner::ceil(self.height, hdiv);
 
+        dbg!(self.width);
         self.width -= width;
         self.height -= height - 1;
 
         /* if the line's width was consumed consume one more line and reset width */
         if self.width == 0 && self.height > 1 {
             self.width = self.max_width;
-            self.height -= 1;
+            dbg!(self.height -= 1);
             self.y += 1;
         }
 
         self.x += width;
-        self.y += height - 1;
+        dbg!(self.y += height - 1);
 
         if self.x == self.max_width {
             self.x = 0;
         }
 
-        self.length -= 1;
+        dbg!(self.length -= 1);
 
         Some(Rect::new(x,y,width,height))
     }
