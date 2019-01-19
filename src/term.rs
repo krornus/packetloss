@@ -1,24 +1,15 @@
-use std::iter;
-use std::iter::{Extend, Iterator};
-use std::cmp::max;
-use std::io;
+use std::iter::Iterator;
+use std::cmp::min;
 
-use tui::Terminal;
-use tui::backend::TermionBackend;
-use termion::raw::IntoRawMode;
-
-use tui::layout::{Corner, Rect};
-use tui::style::Style;
+use tui::layout::Rect;
 use tui::buffer::Buffer;
-use tui::widgets::{Block, Text, Widget};
+use tui::widgets::{Block, Widget};
 
 use crate::ping::PacketChunk;
 
 pub struct LogList<'b> {
     block: Option<Block<'b>>,
     items: Vec<PacketChunk>,
-    style: Style,
-    start_corner: Corner,
 }
 
 
@@ -27,23 +18,12 @@ impl<'b> Default for LogList<'b> {
         LogList {
             block: None,
             items: vec![],
-            style: Style::default(),
-            start_corner: Corner::TopLeft,
         }
     }
 }
 
 
 impl<'b> LogList<'b> {
-    pub fn new(items: Vec<PacketChunk>) -> Self {
-        LogList {
-            block: None,
-            items,
-            style: Style::default(),
-            start_corner: Corner::TopLeft,
-        }
-    }
-
     pub fn insert(&mut self, item: PacketChunk) {
         self.items.insert(0, item);
     }
@@ -57,34 +37,31 @@ impl<'b> LogList<'b> {
         self
     }
 
-    pub fn style(mut self, style: Style) -> Self {
-        self.style = style;
-        self
-    }
-
-    pub fn start_corner(mut self, corner: Corner) -> Self {
-        self.start_corner = corner;
-        self
-    }
-
     pub fn partition(&mut self, size: Rect) -> LogListPartitioner {
         LogListPartitioner {
-            max_length: self.len() as u16,
+            x: 0,
+            y: 0,
+            width: size.width,
+            max_width: size.width,
+            height: size.height,
             length: self.len() as u16,
-            size: size,
         }
     }
 }
 
-struct LogListPartitioner {
-    max_length: u16,
+#[derive(Debug)]
+pub struct LogListPartitioner {
+    x: u16,
+    y: u16,
+    width: u16,
+    max_width: u16,
+    height: u16,
     length: u16,
-    size: Rect,
 }
 
 impl LogListPartitioner {
-    fn divisor(&self) -> u16 {
-        (self.max_length - self.length) + 1
+    fn ceil(a: u16, b: u16) -> u16 {
+        1 + ((a - 1) / b)
     }
 }
 
@@ -97,42 +74,43 @@ impl Iterator for LogListPartitioner {
      */
     fn next(&mut self) -> Option<Self::Item> {
 
-        if self.size.height == 0 || self.size.width == 0 || self.length == 0 {
+        dbg!(&self);
+
+        if self.height == 0 || self.length == 0 {
             return None;
         }
 
+        let x = self.x;
+        let y = self.y;
+
+        let after = min(self.length, (self.height - 1) * self.max_width);
+
+        let wdiv = (self.length - after) + 1;
+        let hdiv = min(self.height, self.length);
+
+        let width = LogListPartitioner::ceil(self.width, wdiv);
+        let height = LogListPartitioner::ceil(self.height, hdiv);
+
+        self.width -= width;
+        self.height -= height - 1;
+
+        /* if the line's width was consumed consume one more line and reset width */
+        if self.width == 0 && self.height > 0 {
+            self.width = self.max_width;
+            self.height -= 1;
+            self.y += 1;
+        }
+
+        self.x += width;
+        self.y += height - 1;
+
+        if self.x == self.max_width {
+            self.x = 0;
+        }
+
         self.length -= 1;
-        let divisor = self.divisor();
 
-        /* height and width are both > 1 */
-        /* we have mutliple items remaining requiring space */
-        /* divide available space */
-        /* subtract used space from self.size */
-        let rect = if self.size.height < divisor {
-
-            /* if we cant divide again, just return all space remaining */
-            if self.size.width < divisor {
-                return Some(self.size.clone());
-            }
-
-            let width = self.size.width / divisor;
-            let rect = Rect::new(self.size.x, self.size.y, width, 1);
-            /* move forward by width */
-            self.size.x += width;
-            self.size.width -= width;
-
-            rect
-        } else {
-            let height = self.size.height / divisor;
-            let rect = Rect::new(self.size.x, self.size.y, self.size.width, height);
-            /* move down by height */
-            self.size.y += height;
-            self.size.height -= height;
-
-            rect
-        };
-
-        Some(rect)
+        Some(Rect::new(x,y,width,height))
     }
 }
 
@@ -148,14 +126,7 @@ impl<'b> Widget for LogList<'b> {
             return;
         }
 
-        let single = self.items.len() == 1;
-
-        self.background(&area, buf, self.style.bg);
-
-        let mut consumed = 0;
-
         let partitions = self.partition(area);
-
         for (item, area) in self.items.iter_mut().zip(partitions) {
             item.draw(area, buf);
         }

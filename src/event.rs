@@ -15,8 +15,6 @@ pub enum Event<I> {
 /// type is handled in its own thread and returned to a common `Receiver`
 pub struct Events {
     rx: mpsc::Receiver<Event<Key>>,
-    input_handle: thread::JoinHandle<()>,
-    tick_handle: thread::JoinHandle<()>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -41,7 +39,7 @@ impl Events {
 
     pub fn with_config(config: Config) -> Events {
         let (tx, rx) = mpsc::channel();
-        let input_handle = {
+        {
             let tx = tx.clone();
             thread::spawn(move || {
                 let stdin = io::stdin();
@@ -60,7 +58,7 @@ impl Events {
                 }
             })
         };
-        let tick_handle = {
+        {
             let tx = tx.clone();
             thread::spawn(move || {
                 let tx = tx.clone();
@@ -72,8 +70,6 @@ impl Events {
         };
         Events {
             rx,
-            input_handle,
-            tick_handle,
         }
     }
 

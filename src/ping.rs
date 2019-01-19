@@ -2,11 +2,9 @@ use oping::{PingItem, PingError};
 
 use std::time::{Duration, SystemTime};
 use std::fmt;
-use std::borrow::Cow;
-use rand::prelude::*;
 
 use tui::buffer::Buffer;
-use tui::widgets::{Widget, Text};
+use tui::widgets::Widget;
 use tui::layout::Rect;
 use tui::style::Color;
 
@@ -17,8 +15,6 @@ pub struct Ping {
 
 impl Ping {
     pub fn new(addr: &str, timeout: Duration) -> Self {
-        let mut ping = oping::Ping::new();
-
         let ms = timeout.subsec_millis();
         let timeout = timeout.as_secs() as f64 + (ms as f64 / 1000_f64);
 
@@ -28,28 +24,19 @@ impl Ping {
         }
     }
 
-    pub fn addr(&mut self, addr: String) {
-        self.addr = addr
-    }
-
-    pub fn timeout(&mut self, timeout: Duration) {
-        let ms = timeout.subsec_millis();
-        self.timeout = timeout.as_secs() as f64 + (ms as f64 / 1000_f64);
-    }
-
-    pub fn ping(&self, count: u64) -> PacketChunk {
+    pub fn ping(&self, count: u64) -> Result<PacketChunk, PingError> {
         let mut chunk = PacketChunk::new();
 
         for _ in 0..count {
             let mut ping = oping::Ping::new();
-            ping.set_timeout(self.timeout);
-            ping.add_host(self.addr.as_str());
+            ping.set_timeout(self.timeout)?;
+            ping.add_host(self.addr.as_str())?;
 
-            let item = ping.send().expect("Failed to send ping").next().unwrap();
+            let item = ping.send()?.next().unwrap();
             chunk.packets.push(item);
         }
 
-        chunk
+        Ok(chunk)
     }
 }
 
