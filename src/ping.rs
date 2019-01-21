@@ -49,7 +49,6 @@ pub struct PacketChunk {
     packets: Vec<Option<PingItem>>,
     time: SystemTime,
     timeout: f64,
-    pub min: f64,
 }
 
 impl PacketChunk {
@@ -58,7 +57,6 @@ impl PacketChunk {
             packets: vec![],
             time: SystemTime::now(),
             timeout: timeout,
-            min: 0.0,
         }
     }
 
@@ -103,10 +101,10 @@ impl PacketChunk {
         acc
     }
 
-    pub fn color(&self) -> (u8, u8, u8) {
+    pub fn color(&self, min: f64) -> (u8, u8, u8) {
 
         let loss = self.loss();
-        let mut lat = self.min / self.latency();
+        let mut lat = min / self.latency();
 
         if lat > 1.0 {
             lat = 1.0;
@@ -126,9 +124,24 @@ impl PacketChunk {
     }
 }
 
-impl Widget for PacketChunk {
+/* seperate struct for drawing - need min response time dynamically */
+pub struct DrawablePacket<'a> {
+    packet: &'a PacketChunk,
+    min_latency: f64,
+}
+
+impl<'a> DrawablePacket<'a> {
+    pub fn new(packet: &'a PacketChunk, min: f64) -> Self {
+        DrawablePacket {
+            packet: packet,
+            min_latency: min,
+        }
+    }
+}
+
+impl<'a> Widget for DrawablePacket<'a> {
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
-        let (r,g,b) = self.color();
+        let (r,g,b) = self.packet.color(self.min_latency);
         let color = Color::Rgb(r,g,b);
 
         if area.width == 0 || area.height == 0 {
@@ -137,11 +150,11 @@ impl Widget for PacketChunk {
 
         self.background(&area, buf, color);
 
-        let pct = (self.loss()*100f64) as u32;
+        let pct = (self.packet.loss()*100f64) as u32;
 
         let long = format!(" {} packets transmitted, {} received, {}% packet loss, time {:.01}ms ",
-              self.sent(), self.received(), pct, self.latency());
-        let short = format!(" {}% [{:.0}ms] ", pct, self.latency());
+              self.packet.sent(), self.packet.received(), pct, self.packet.latency());
+        let short = format!(" {}% [{:.0}ms] ", pct, self.packet.latency());
 
         let info = if area.width >= long.len() as u16 {
             long
@@ -160,4 +173,3 @@ impl Widget for PacketChunk {
         buf.set_stringn(x, y, info, area.width as usize, style);
     }
 }
-

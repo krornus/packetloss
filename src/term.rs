@@ -6,7 +6,7 @@ use tui::layout::Rect;
 use tui::buffer::Buffer;
 use tui::widgets::{Block, Widget};
 
-use crate::ping::PacketChunk;
+use crate::ping::{DrawablePacket, PacketChunk};
 
 pub struct LogList<'b> {
     block: Option<Block<'b>>,
@@ -140,8 +140,8 @@ impl<'b> Widget for LogList<'b> {
 
         let partitions = self.partition(area);
         for (item, area) in self.items.iter_mut().zip(partitions) {
-            item.min = self.min_latency;
-            item.draw(area, buf);
+            let mut drawable = DrawablePacket::new(item, self.min_latency);
+            drawable.draw(area, buf);
         }
 
     }
