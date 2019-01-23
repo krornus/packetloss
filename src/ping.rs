@@ -1,11 +1,13 @@
 use oping::{PingItem, PingError};
 
-use std::time::{Duration, SystemTime};
-
 use tui::buffer::Buffer;
 use tui::widgets::Widget;
 use tui::layout::Rect;
 use tui::style::Color;
+
+use chrono::prelude::*;
+
+use std::time::Duration;
 
 pub struct Ping {
     addr: String,
@@ -47,16 +49,20 @@ impl Ping {
 #[derive(Clone)]
 pub struct PacketChunk {
     packets: Vec<Option<PingItem>>,
-    time: SystemTime,
+    time: DateTime<Local>,
     timeout: f64,
+    tint: (u8,u8,u8),
+    tint_weight: f64,
 }
 
 impl PacketChunk {
     pub fn new(timeout: f64) -> Self {
         PacketChunk {
             packets: vec![],
-            time: SystemTime::now(),
+            time: Local::now(),
             timeout: timeout,
+            tint: (0, 0, 0),
+            tint_weight: 0.0,
         }
     }
 
@@ -77,6 +83,20 @@ impl PacketChunk {
             0_f64
         } else {
             1f64 - (self.received() as f64 / self.sent() as f64)
+        }
+    }
+
+    pub fn tint(&mut self, color: (u8,u8,u8)) {
+        self.tint = color;
+    }
+
+    pub fn tint_weight(&mut self, weight: f64) {
+        if weight > 1.0 {
+            self.tint_weight = 1.0;
+        } else if weight < 0.0 {
+            self.tint_weight = 0.0;
+        } else {
+            self.tint_weight = weight;
         }
     }
 
@@ -113,12 +133,23 @@ impl PacketChunk {
         /* 100% = green */
         let mix = (1.0 - loss)*lat;
 
-        let red: (f64, f64, f64) = (224.0, 15.0, 71.0);
-        let green: (f64, f64, f64) = (14.0, 204.0, 80.0);
+        let red: (u8, u8, u8) = (224, 15, 71);
+        let green: (u8, u8, u8) = (14, 204, 80);
 
-        let r = ((green.0)*(mix) + (red.0)*(1.0-mix)) as u8;
-        let g = ((green.1)*(mix) + (red.1)*(1.0-mix)) as u8;
-        let b = ((green.2)*(mix) + (red.2)*(1.0-mix)) as u8;
+        let color = mix_colors(mix, green, red);
+        mix_colors(self.tint_weight, self.tint, color)
+    }
+}
+
+fn mix_colors(mix: f64, a: (u8, u8, u8), b: (u8, u8, u8)) -> (u8, u8, u8) {
+    if mix == 0.0 {
+        b
+    } else if mix == 1.0 {
+        a
+    } else {
+        let r = ((a.0 as f64)*(mix) + (b.0 as f64)*(1.0-mix)) as u8;
+        let g = ((a.1 as f64)*(mix) + (b.1 as f64)*(1.0-mix)) as u8;
+        let b = ((a.2 as f64)*(mix) + (b.2 as f64)*(1.0-mix)) as u8;
 
         (r,g,b)
     }
@@ -152,8 +183,8 @@ impl<'a> Widget for DrawablePacket<'a> {
 
         let pct = (self.packet.loss()*100f64) as u32;
 
-        let long = format!(" {} packets transmitted, {} received, {}% packet loss, time {:.01}ms ",
-              self.packet.sent(), self.packet.received(), pct, self.packet.latency());
+        let time = self.packet.time.format("%b %d %H:%M:%S");
+        let long = format!(" {}: {}% packet loss, time {:.01}ms ", time, pct, self.packet.latency());
         let short = format!(" {}% [{:.0}ms] ", pct, self.packet.latency());
 
         let info = if area.width >= long.len() as u16 {

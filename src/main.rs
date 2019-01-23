@@ -17,8 +17,13 @@ mod term;
 mod event;
 
 use crate::ping::Ping;
-use crate::term::LogList;
+use crate::term::SelectableLogList;
 use crate::event::{Event, Events};
+
+/*
+ * TODO:
+ * redraw flag in LogList
+ */
 
 #[derive(Debug)]
 enum Error {
@@ -88,6 +93,12 @@ fn main() -> Result<(), Error> {
             .help("ping timeout duration (ms)")
             .validator(is_int)
             .default_value("100"))
+        .arg(Arg::with_name("max")
+            .long("max")
+            .short("m")
+            .help("maximum number of packets to be stored")
+            .validator(is_int)
+            .default_value("20475"))
         .get_matches();
 
     let address = matches.value_of("address").unwrap();
@@ -97,6 +108,8 @@ fn main() -> Result<(), Error> {
         .parse::<u64>().unwrap();
     let timeout = matches.value_of("timeout").unwrap()
         .parse::<u64>().unwrap();
+    let max = matches.value_of("max").unwrap()
+        .parse::<usize>().unwrap();
 
     let ping = Ping::new(address, Duration::from_millis(timeout));
 
@@ -107,43 +120,72 @@ fn main() -> Result<(), Error> {
 
     let events = Events::new();
 
-    let mut list = LogList::default();
+    let mut list = SelectableLogList::new(max);
     let mut sleep = Sleep::new();
     let mut internal_size = terminal.size()?;
 
+    let mut redraw = true;
+
     loop {
-        /* redraw, retry if the size is incorrect */
+
         let size = terminal.size()?;
+
+
         if size != internal_size {
 
             terminal.resize(size)?;
             internal_size = size;
-
             terminal.clear()?;
 
+            redraw = true;
+
+            continue;
+
+        }
+
+        /* only redraw after size is verified */
+        if redraw {
+            redraw = false;
             terminal.draw(|mut f| {
                 list.render(&mut f, size);
             })?;
-        } else if sleep.done() {
+        }
+
+        if sleep.done() {
 
             let chunk = ping.ping(chunk_size)?;
             list.insert(chunk);
-
-            terminal.draw(|mut f| {
-                list.render(&mut f, size);
-            })?;
-
             sleep = Sleep::sleep(Duration::from_secs(interval));
+
+            redraw = true;
         }
 
         match events.next()? {
             Event::Input(input) => match input {
-                Key::Char('q') | Key::Esc => {
-                    break;
-                }
-                _ => {}
+                Key::Char('q') => { break; }
+                Key::Char('j') => {
+                    list.select_next();
+                    redraw = true;
+                },
+                Key::Char('k') => {
+                    list.select_prev();
+                    redraw = true;
+                },
+                Key::Char('g') => {
+                    list.select_first();
+                    redraw = true;
+                },
+                Key::Char('G') => {
+                    list.select_last();
+                    redraw = true;
+                },
+                Key::Esc => {
+                    list.clear();
+                    redraw = true;
+                },
+                _ => {},
             },
-            _ => {}
+            _ => {},
         }
     }
 
